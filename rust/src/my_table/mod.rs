@@ -80,9 +80,11 @@ pub async fn do_something_expensive(
     let query = query.unwrap_or_else(Entity::find);
     let conn = get_conn().await?;
     let stream = query.stream(conn).await?;
-    Ok(stream
-        .try_filter(move |model| future::ready(model.metadata.parent_id == Some(id)))
-        .map_ok(Into::into))
+    Ok(stream.try_filter_map(move |model| {
+        future::ready(Ok(
+            (model.metadata.parent_id == Some(id)).then(|| model.into())
+        ))
+    }))
 }
 
 pub type ModelStream = Pin<Box<dyn Stream<Item = Result<Model, DbErr>>>>;
@@ -109,11 +111,11 @@ impl AsyncScope for Select<Entity> {
         Box::pin(async move {
             let conn = get_conn().await?;
             let stream = self.stream(conn).await?;
-            Ok(Box::pin(
-                stream
-                    .try_filter(move |model| future::ready(model.metadata.parent_id == Some(id)))
-                    .map_ok(Into::into),
-            ) as ModelStream)
+            Ok(Box::pin(stream.try_filter_map(move |model| {
+                future::ready(Ok(
+                    (model.metadata.parent_id == Some(id)).then(|| model.into())
+                ))
+            })) as ModelStream)
         })
     }
 }
