@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::json::Json;
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "my_table")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -18,7 +18,7 @@ pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Metadata {
     pub parent_id: Option<i32>,
 }

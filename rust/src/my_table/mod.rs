@@ -1,4 +1,8 @@
-use std::{future, ops::Deref};
+use std::{
+    future::{self, Future},
+    ops::Deref,
+    pin::Pin,
+};
 
 use futures_util::{Stream, TryStreamExt};
 
@@ -38,7 +42,7 @@ impl Model {
         @cache ||= self.class.active.do_something_expensive(id: id)
     end
     */
-    pub async fn cached_method(&self) -> Result<&[Model], DbErr> {
+    pub async fn cached_method(&self) -> Result<&Vec<Model>, DbErr> {
         self.cache
             .get_or_try_init(|| async {
                 do_something_expensive(self.id, Some(Entity::find().active()))
@@ -47,7 +51,18 @@ impl Model {
                     .await
             })
             .await
-            .map(|v| v.deref())
+    }
+    pub async fn cached_method_trait(&self) -> Result<&Vec<Model>, DbErr> {
+        self.cache
+            .get_or_try_init(|| async {
+                Entity::find()
+                    .active()
+                    .do_something_expensive(self.id)
+                    .await?
+                    .try_collect()
+                    .await
+            })
+            .await
     }
 }
 
@@ -68,4 +83,37 @@ pub async fn do_something_expensive(
     Ok(stream
         .try_filter(move |model| future::ready(model.metadata.parent_id == Some(id)))
         .map_ok(Into::into))
+}
+
+pub type ModelStream = Pin<Box<dyn Stream<Item = Result<Model, DbErr>>>>;
+
+trait AsyncScope: Sized {
+    fn do_something_expensive(
+        self,
+        id: i32,
+    ) -> Pin<Box<dyn Future<Output = Result<ModelStream, DbErr>>>>;
+}
+
+impl AsyncScope for Select<Entity> {
+    /*
+      def self.do_something_expensive(id:)
+          select do |model|
+              model.metadata['parent_id'] == id
+          end
+      end
+    */
+    fn do_something_expensive(
+        self,
+        id: i32,
+    ) -> Pin<Box<dyn Future<Output = Result<ModelStream, DbErr>>>> {
+        Box::pin(async move {
+            let conn = get_conn().await?;
+            let stream = self.stream(conn).await?;
+            Ok(Box::pin(
+                stream
+                    .try_filter(move |model| future::ready(model.metadata.parent_id == Some(id)))
+                    .map_ok(Into::into),
+            ) as ModelStream)
+        })
+    }
 }
